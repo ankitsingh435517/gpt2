@@ -1,0 +1,6 @@
+torch
+transformers
+tiktoken
+datasets
+pyarrow
+numpy
