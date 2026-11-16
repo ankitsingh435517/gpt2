@@ -8,6 +8,7 @@ import math
 import inspect
 from hellaswag import render_example, iterate_examples
 
+
 class CausalSelfAttention(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -249,10 +250,12 @@ class GPT(nn.Module):
 import tiktoken
 import numpy as np
 
+
 def load_tokens(filename):
     npt = np.load(filename)
     ptt = torch.tensor(npt, dtype=torch.long)
     return ptt
+
 
 class DataLoaderLite:
     def __init__(self, B, T, process_rank, num_processes, split):
@@ -260,7 +263,7 @@ class DataLoaderLite:
         self.T = T
         self.process_rank = process_rank
         self.num_processes = num_processes
-        assert split in {'train', 'val'}
+        assert split in {"train", "val"}
 
         # get the shard filenames
         data_root = "edu_fineweb10B"
@@ -273,7 +276,7 @@ class DataLoaderLite:
         if master_process:
             print(f"found {len(shards)} shards for split {split}")
         self.reset()
-    
+
     def reset(self):
         # state, init at shard zero
         self.current_shard = 0
@@ -314,17 +317,17 @@ enc = tiktoken.get_encoding("gpt2")
 
 # set up ddp (distributed data parallel).
 # torchrun command sets the env variables RANK, LOCAL_RANK and WORLD_SIZE
-ddp = int(os.environ.get("RANK", -1)) != -1 # is this a ddp run ?
+ddp = int(os.environ.get("RANK", -1)) != -1  # is this a ddp run ?
 if ddp:
     # use of DDP atm demands CUDA, we set the device appropriately according to rank
     assert torch.cuda.is_available(), "for now i think we need CUDA for ddp"
-    init_process_group(backend='nccl')
+    init_process_group(backend="nccl")
     ddp_rank = int(os.environ["RANK"])
     ddp_local_rank = int(os.environ["LOCAL_RANK"])
     ddp_world_size = int(os.environ["WORLD_SIZE"])
-    device = f'cuda:{ddp_local_rank}'
+    device = f"cuda:{ddp_local_rank}"
     torch.cuda.set_device(device)
-    master_process = ddp_rank == 0 # this process will do logging, checkpointing etc.
+    master_process = ddp_rank == 0  # this process will do logging, checkpointing etc.
 else:
     # vanilla, non-ddp run
     ddp_rank = 0
@@ -351,25 +354,33 @@ torch.manual_seed(1337)
 if torch.cuda.is_available():
     torch.cuda.manual_seed(1337)
 
-total_batch_size = 524288 # 2**19, ~0.5M, in number of tokens
-B = 16 # micro batch size
-T = 1024 # sequence length
-assert total_batch_size % (B * T * ddp_world_size) == 0, "make sure total batch_size is divisible by B * T * ddp_world_size"
+total_batch_size = 524288  # 2**19, ~0.5M, in number of tokens
+B = 16  # micro batch size
+T = 1024  # sequence length
+assert total_batch_size % (B * T * ddp_world_size) == 0, (
+    "make sure total batch_size is divisible by B * T * ddp_world_size"
+)
 grad_accum_steps = total_batch_size // (B * T * ddp_world_size)
 if master_process:
     print(f"total desired batch size: {total_batch_size}")
     print(f"=> calulated gradient accumulation steps: {grad_accum_steps}")
 
 
-train_loader = DataLoaderLite(B=16, T=1024, process_rank=ddp_rank, num_processes=ddp_world_size, split="train")
-val_loader = DataLoaderLite(B=B, T=T, process_rank=ddp_rank, num_processes=ddp_world_size, split="val")
+train_loader = DataLoaderLite(
+    B=16, T=1024, process_rank=ddp_rank, num_processes=ddp_world_size, split="train"
+)
+val_loader = DataLoaderLite(
+    B=B, T=T, process_rank=ddp_rank, num_processes=ddp_world_size, split="val"
+)
 
 torch.set_float32_matmul_precision("high")
 
 # create model
 model = GPT(GPTConfig(vocab_size=50304))
 model.to(device)
-use_compile = False # torch.compile interferes  with hellaswag eval and generation. TODO fix
+use_compile = (
+    False  # torch.compile interferes  with hellaswag eval and generation. TODO fix
+)
 if use_compile:
     model = torch.compile(model)
 if ddp:
@@ -380,6 +391,8 @@ max_lr = 6e-4
 min_lr = max_lr * 0.1
 warmup_steps = 715
 max_steps = 19073
+
+
 def get_lr(it):
     # 1) Linear warmup for warmup_iters steps
     if it < warmup_steps:
@@ -430,8 +443,9 @@ optimizer = raw_model.configure_optimizer(
 log_dir = "log"
 os.makedirs(log_dir, exist_ok=True)
 log_file = os.path.join(log_dir, f"log.txt")
-with open(log_file, "w") as f: # open to writing to clear the file
+with open(log_file, "w") as f:  # open to writing to clear the file
     pass
+
 
 def get_most_likely_row(tokens, mask, logits):
     # evaluate the autoregressive loss at all positions
@@ -439,10 +453,14 @@ def get_most_likely_row(tokens, mask, logits):
     shift_tokens = (tokens[..., 1:]).contiguous()
     flat_shift_logits = shift_logits.view(-1, shift_logits.size(-1))
     flat_shift_tokens = shift_tokens.view(-1)
-    shift_losses = F.cross_entropy(flat_shift_logits, flat_shift_tokens, reduction='none')
+    shift_losses = F.cross_entropy(
+        flat_shift_logits, flat_shift_tokens, reduction="none"
+    )
     shift_losses = shift_losses.view(tokens.size(0), -1)
     # now get the average loss just for the completion region (where mask == 1), in each row
-    shift_mask = (mask[..., 1:]).contiguous() # we must shift mask, so we start at the last prompt token
+    shift_mask = (
+        mask[..., 1:]
+    ).contiguous()  # we must shift mask, so we start at the last prompt token
     masked_shift_losses = shift_losses * shift_mask
     # sum and divide by the number of 1s in the mask
     sum_loss = masked_shift_losses.sum(dim=1)
@@ -452,9 +470,10 @@ def get_most_likely_row(tokens, mask, logits):
     pred_norm = avg_loss.argmin().item()
     return pred_norm
 
+
 for step in range(max_steps):
     t0 = time.time()
-    last_step = (step == max_steps - 1)
+    last_step = step == max_steps - 1
 
     # once in a while evaluate our validation loss
     if step % 100 == 0 or last_step:
@@ -474,7 +493,21 @@ for step in range(max_steps):
                 dist.all_reduce(val_loss_accum, op=dist.ReduceOp.AVG)
             if master_process:
                 print(f"validation loss: {val_loss_accum.item():.4f}")
-    
+                with open(log_file, "a") as f:
+                    f.write(f"{step} val {val_loss_accum.item():.4f}\n")
+                if step > 0 and (step % 5000 == 0 or last_step):
+                    # optionally write model checkpoints
+                    checkpoint_path = os.path.join(log_dir, f"model_{step:05d}.pt")
+                    checkpoint = {
+                        "model": raw_model.state_dict(),
+                        "config": raw_model.config(),
+                        "step": step,
+                        "val_loss": val_loss_accum.item(),
+                    }
+                    # you might also want to add optimizer.state_dict() and
+                    # rng seeds etc., if you wanted to more exactly resume training
+                    torch.save(checkpoint, checkpoint_path)
+
     # once in a while evaluate hellaswag
     if (step % 250 == 0 or last_step) and (not use_compile):
         num_correct_norm = 0
@@ -497,7 +530,9 @@ for step in range(max_steps):
         # reduce the stats accross all processes
         if ddp:
             num_total = torch.tensor(num_total, dtype=torch.long, device=device)
-            num_correct_norm = torch.tensor(num_correct_norm, dtype=torch.long, device=device)
+            num_correct_norm = torch.tensor(
+                num_correct_norm, dtype=torch.long, device=device
+            )
             dist.all_reduce(num_total, op=dist.ReduceOp.SUM)
             dist.all_reduce(num_correct_norm, op=dist.ReduceOp.SUM)
             num_total = num_total.item()
@@ -523,18 +558,18 @@ for step in range(max_steps):
             # forward the model to get the logits
             with torch.no_grad():
                 with torch.autocast(device_type=device, dtype=torch.bfloat16):
-                    logits, loss = model(xgen) # (B, T, vocab_size)
+                    logits, loss = model(xgen)  # (B, T, vocab_size)
                 # take the logits at the last position
-                logits = logits[:, -1, :] # (B, vocab_size)
+                logits = logits[:, -1, :]  # (B, vocab_size)
                 # get the probabilities
                 probs = F.softmax(logits, dim=-1)
                 # do top-k sampling of 50 (huggingface pipeline defaults)
                 topk_probs, topk_indices = torch.topk(probs, 50, dim=-1)
                 # select a token from the top-k probabilities
                 # note: multinomial does not demand the input to sum to 1
-                ix = torch.multinomial(topk_probs, 1, generator=sample_rng) # (B, 1)
+                ix = torch.multinomial(topk_probs, 1, generator=sample_rng)  # (B, 1)
                 # gather the corresponding indices
-                xcol = torch.gather(topk_indices, -1, ix) # (B, 1)
+                xcol = torch.gather(topk_indices, -1, ix)  # (B, 1)
                 # append to the sequence
                 xgen = torch.cat((xgen, xcol), dim=-1)
         # print the generated text
@@ -555,7 +590,7 @@ for step in range(max_steps):
         loss = loss / grad_accum_steps
         loss_accum += loss.detach()
         if ddp:
-            model.require_backward_grad_sync = (micro_step == grad_accum_steps - 1)
+            model.require_backward_grad_sync = micro_step == grad_accum_steps - 1
         loss.backward()
     if ddp:
         dist.all_reduce(loss_accum, op=dist.ReduceOp.AVG)
@@ -568,9 +603,11 @@ for step in range(max_steps):
     optimizer.step()
     torch.cuda.synchronize()
     t1 = time.time()
-    dt = (t1 - t0) # time difference
+    dt = t1 - t0  # time difference
     dt_ms = dt * 1000
-    tokens_processed = train_loader.B * train_loader.T * grad_accum_steps * ddp_world_size
+    tokens_processed = (
+        train_loader.B * train_loader.T * grad_accum_steps * ddp_world_size
+    )
     tokens_per_sec = tokens_processed / dt
     if master_process:
         print(
