@@ -390,7 +390,7 @@ raw_model = model.module if ddp else model
 max_lr = 6e-4
 min_lr = max_lr * 0.1
 warmup_steps = 715
-max_steps = 19073
+max_steps = 500  # 19073 ~ 1 epoch (TODO: How ?)
 
 
 def get_lr(it):
@@ -426,7 +426,17 @@ def load_saved_checkpoints(model, path):
     model.load_state_dict(state_dict)
 
 
-# load_saved_checkpoints(model, "gpt2.pt")
+import argparse
+
+parser = argparse.ArgumentParser()
+
+parser.add_argument("--load_saved", type=bool, default=False)
+
+args = parser.parse_args()
+if args.load_saved:
+    print("loading saved model")
+    load_saved_checkpoints(model, "gpt2.pt")
+
 # model.eval()
 # logits, loss = model(x, y)
 # print(loss.item())
@@ -613,9 +623,9 @@ for step in range(max_steps):
         print(
             f"step {step} | loss: {loss_accum.item():.6f} | lr: {lr:.4f} | norm: {norm:.4f} | dt(ms): {dt_ms:.2f}ms | tok/sec: {tokens_per_sec:.2f}"
         )
-    # if i % 10 == 0:
-    #     save_checkpoints(model, 'gpt2.pt')
-    #     print(f"Iteration: {i}/50, checkpoints saved")
+    if step % 10 == 0:
+        save_checkpoints(model, "gpt2.pt")
+        print(f"Iteration: {step % 10} checkpoints saved on step: {step}")
 
 if ddp:
     destroy_process_group()
