@@ -519,6 +519,7 @@ for step in range(max_steps):
                     torch.save(checkpoint, checkpoint_path)
 
     # once in a while evaluate hellaswag
+    # TODO: move the eval to a function and add other evals
     if (step % 250 == 0 or last_step) and (not use_compile):
         num_correct_norm = 0
         num_total = 0
