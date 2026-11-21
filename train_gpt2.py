@@ -415,12 +415,15 @@ checkpoint_dir = "/mnt/gpt2-checkpoints/checkpoints"
 os.makedirs(checkpoint_dir, exist_ok=True)
 
 
-def save_checkpoints(model, path):
-    torch.save(model.state_dict(), os.path.join(checkpoint_dir, path))
+def save_checkpoint(model, checkpoint_path):
+    temp_path = checkpoint_path + ".tmp"
+
+    torch.save(model.state_dict(), temp_path)
+    os.replace(temp_path, checkpoint_path)
 
 
 # load saved checkpoint
-def load_saved_checkpoints(model, path):
+def load_saved_checkpoint(model, path):
     checkpoint_path = os.path.join(checkpoint_dir, path)
     state_dict = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
     model.load_state_dict(state_dict)
@@ -430,12 +433,16 @@ import argparse
 
 parser = argparse.ArgumentParser()
 
-parser.add_argument("--load_saved", type=bool, default=False)
+parser.add_argument(
+    "--load_saved",
+    action="store_true",
+    help="Load an existing checkpoint",
+)
 
 args = parser.parse_args()
 if args.load_saved:
     print("loading saved model")
-    load_saved_checkpoints(model, "gpt2.pt")
+    load_saved_checkpoint(model, "gpt2.pt")
 
 # model.eval()
 # logits, loss = model(x, y)
@@ -510,7 +517,7 @@ for step in range(max_steps):
                     checkpoint_path = os.path.join(log_dir, f"model_{step:05d}.pt")
                     checkpoint = {
                         "model": raw_model.state_dict(),
-                        "config": raw_model.config(),
+                        "config": raw_model.config,
                         "step": step,
                         "val_loss": val_loss_accum.item(),
                     }
@@ -624,9 +631,10 @@ for step in range(max_steps):
         print(
             f"step {step} | loss: {loss_accum.item():.6f} | lr: {lr:.4f} | norm: {norm:.4f} | dt(ms): {dt_ms:.2f}ms | tok/sec: {tokens_per_sec:.2f}"
         )
-    if step % 10 == 0:
-        save_checkpoints(model, "gpt2.pt")
-        print(f"Iteration: {step % 10} checkpoints saved on step: {step}")
+    # this is a redundant save, later on for long runs it can be removed, use saving at last step or every once a while (every 5k steps)
+    if step % 10 == 0 and master_process:
+        save_checkpoint(model, os.path.join(checkpoint_dir, "gpt2.pt"))
+        print(f"Iteration: {step // 10} checkpoint saved on step: {step} loss: {loss_accum.item():.6f}")
 
 if ddp:
     destroy_process_group()
