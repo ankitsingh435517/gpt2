@@ -7,6 +7,7 @@ from torch.nn import functional as F
 import math
 import inspect
 from hellaswag import render_example, iterate_examples
+from generate import generate
 
 
 class CausalSelfAttention(nn.Module):
@@ -563,38 +564,40 @@ for step in range(max_steps):
 
     # once in a while generate from the model (except step 0, which is noise)
     if (step > 0 and step % 250 == 0 or last_step) and (not use_compile):
-        model.eval()
-        num_return_sequences = 4
-        max_length = 32
-        tokens = enc.encode("Hello, I'm a language model,")
-        tokens = torch.tensor(tokens, dtype=torch.long)
-        tokens = tokens.unsqueeze(0).repeat(num_return_sequences, 1)
-        xgen = tokens.to(device)
-        sample_rng = torch.Generator(device=device)
-        sample_rng.manual_seed(42 + ddp_rank)
-        while xgen.size(1) < max_length:
-            # forward the model to get the logits
-            with torch.no_grad():
-                with torch.autocast(device_type=device, dtype=torch.bfloat16):
-                    logits, loss = model(xgen)  # (B, T, vocab_size)
-                # take the logits at the last position
-                logits = logits[:, -1, :]  # (B, vocab_size)
-                # get the probabilities
-                probs = F.softmax(logits, dim=-1)
-                # do top-k sampling of 50 (huggingface pipeline defaults)
-                topk_probs, topk_indices = torch.topk(probs, 50, dim=-1)
-                # select a token from the top-k probabilities
-                # note: multinomial does not demand the input to sum to 1
-                ix = torch.multinomial(topk_probs, 1, generator=sample_rng)  # (B, 1)
-                # gather the corresponding indices
-                xcol = torch.gather(topk_indices, -1, ix)  # (B, 1)
-                # append to the sequence
-                xgen = torch.cat((xgen, xcol), dim=-1)
-        # print the generated text
-        for i in range(num_return_sequences):
-            tokens = xgen[i, :max_length].tolist()
-            decoded = enc.decode(tokens)
-            print(f"rank {ddp_rank} sample {i}: {decoded}")
+        prompt = "Hello, I'm a language model,"
+        generate(model, prompt, device, max_length=32, num_return_sequences=4)
+        # model.eval()
+        # num_return_sequences = 4
+        # max_length = 32
+        # tokens = enc.encode("Hello, I'm a language model,")
+        # tokens = torch.tensor(tokens, dtype=torch.long)
+        # tokens = tokens.unsqueeze(0).repeat(num_return_sequences, 1)
+        # xgen = tokens.to(device)
+        # sample_rng = torch.Generator(device=device)
+        # sample_rng.manual_seed(42 + ddp_rank)
+        # while xgen.size(1) < max_length:
+        #     # forward the model to get the logits
+        #     with torch.no_grad():
+        #         with torch.autocast(device_type=device, dtype=torch.bfloat16):
+        #             logits, loss = model(xgen)  # (B, T, vocab_size)
+        #         # take the logits at the last position
+        #         logits = logits[:, -1, :]  # (B, vocab_size)
+        #         # get the probabilities
+        #         probs = F.softmax(logits, dim=-1)
+        #         # do top-k sampling of 50 (huggingface pipeline defaults)
+        #         topk_probs, topk_indices = torch.topk(probs, 50, dim=-1)
+        #         # select a token from the top-k probabilities
+        #         # note: multinomial does not demand the input to sum to 1
+        #         ix = torch.multinomial(topk_probs, 1, generator=sample_rng)  # (B, 1)
+        #         # gather the corresponding indices
+        #         xcol = torch.gather(topk_indices, -1, ix)  # (B, 1)
+        #         # append to the sequence
+        #         xgen = torch.cat((xgen, xcol), dim=-1)
+        # # print the generated text
+        # for i in range(num_return_sequences):
+        #     tokens = xgen[i, :max_length].tolist()
+        #     decoded = enc.decode(tokens)
+        #     print(f"rank {ddp_rank} sample {i}: {decoded}")
 
     # training loop
     model.train()
@@ -634,7 +637,9 @@ for step in range(max_steps):
     # this is a redundant save, later on for long runs it can be removed, use saving at last step or every once a while (every 5k steps)
     if step % 10 == 0 and master_process:
         save_checkpoint(model, os.path.join(checkpoint_dir, "gpt2.pt"))
-        print(f"Iteration: {step // 10} checkpoint saved on step: {step} loss: {loss_accum.item():.6f}")
+        print(
+            f"Iteration: {step // 10} checkpoint saved on step: {step} loss: {loss_accum.item():.6f}"
+        )
 
 if ddp:
     destroy_process_group()
