@@ -1,22 +1,23 @@
 import tiktoken
 import torch
 from torch.nn import functional as F
-
+from model import GPT, GPTConfig
 
 @torch.no_grad()
 def generate(model, prompt, device, max_length=50, top_k=50, num_return_sequences=4):
     model.eval()
     enc = tiktoken.get_encoding("gpt2")
     tokens = enc.encode(prompt)
-    B, T = num_return_sequences, tokens.size
     tokens = (
-        torch.tensor(tokens, dtype=torch.long, device=device).unsqueeze(0).repeat(B, 1)
+        torch.tensor(tokens, dtype=torch.long, device=device)
+        .unsqueeze(0)
+        .repeat(num_return_sequences, 1)
     )  # [B, T]
     generator = torch.Generator(device=device)
     generator.manual_seed(42)
-    while T < max_length:
+    while tokens.size(1) < max_length:
         with torch.autocast(device_type=device, dtype=torch.bfloat16):
-            logits = model(tokens)  # [B, T, Vocab_size]
+            logits, _ = model(tokens)  # [B, T, Vocab_size]
         logits = logits[:, -1, :]  # [B, T_last, Vocab_size]
         probs = F.softmax(logits, dim=-1)
         topk_probs, topk_indices = torch.topk(probs, top_k, dim=-1)
@@ -26,7 +27,7 @@ def generate(model, prompt, device, max_length=50, top_k=50, num_return_sequence
         )  # gathers the appropriate  index of the selected prob, the index is the token
         tokens = torch.cat((tokens, next_token), dim=-1)
 
-    for i in range(B):
+    for i in range(num_return_sequences):
         seq = tokens[
             i, :max_length
         ].tolist()  # for each sequence in the batch get the whole sequence
@@ -34,7 +35,24 @@ def generate(model, prompt, device, max_length=50, top_k=50, num_return_sequence
         print(f"sample {i}: {decoded}")
 
 
-# TODO:
-# move the model from train_gpt2.py to model.py
-# import model from model.py
-# generate the model on cpu
+def generateSequences(prompts):
+    device = "cpu"
+    config = GPTConfig(vocab_size=50304)
+    model = GPT(config)
+    model.to(device)
+
+    for i in range(len(prompts)):
+        generate(model, prompts[i], device, max_length=50, num_return_sequences=1)
+        print("\n")
+
+
+prompts = [
+    "On a cold winter morning, a young man walked into an abandoned railway station and noticed something strange about the clock.",
+    "The Solar System consists of eight planets orbiting the Sun. The four inner planets are Mercury, Venus, Earth, and Mars,",
+    "Machine learning is a branch of artificial intelligence that enables computers to learn patterns from data rather than relying entirely on explicitly programmed rules.",
+    "don't think we should go there,\" Sarah whispered. \"Something about this place doesn't feel right.",
+]
+generateSequences(prompts)
+
+# TODO: load checkpoints and get meaningful completions, (Whatever meaning it has learnt, lol)
+# TODO: load test & benchmark inference - find bottlenecks
