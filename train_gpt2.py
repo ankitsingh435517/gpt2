@@ -176,10 +176,15 @@ checkpoint_dir = "/mnt/gpt2-checkpoints/checkpoints"
 os.makedirs(checkpoint_dir, exist_ok=True)
 
 
-def save_checkpoint(model, checkpoint_path):
+def save_checkpoint(raw_model, step, val_loss_accum, checkpoint_path):
     temp_path = checkpoint_path + ".tmp"
-
-    torch.save(model.state_dict(), temp_path)
+    checkpoint = {
+        "model": raw_model.state_dict(),
+        "config": raw_model.config,
+        "step": step,
+        "val_loss": val_loss_accum.item(),
+    }
+    torch.save(checkpoint, temp_path)
     os.replace(temp_path, checkpoint_path)
 
 
@@ -396,7 +401,7 @@ for step in range(max_steps):
         )
     # this is a redundant save, later on for long runs it can be removed, use saving at last step or every once a while (every 5k steps)
     if step % 10 == 0 and master_process:
-        save_checkpoint(model, os.path.join(checkpoint_dir, "gpt2.pt"))
+        save_checkpoint(raw_model, step, loss_accum, os.path.join(checkpoint_dir, "gpt2.pt"))
         print(
             f"Iteration: {step // 10} checkpoint saved on step: {step} loss: {loss_accum.item():.6f}"
         )

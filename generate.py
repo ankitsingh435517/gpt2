@@ -2,6 +2,9 @@ import tiktoken
 import torch
 from torch.nn import functional as F
 from model import GPT, GPTConfig
+from pathlib import Path
+import time
+
 
 @torch.no_grad()
 def generate(model, prompt, device, max_length=50, top_k=50, num_return_sequences=4):
@@ -37,22 +40,31 @@ def generate(model, prompt, device, max_length=50, top_k=50, num_return_sequence
 
 def generateSequences(prompts):
     device = "cpu"
-    config = GPTConfig(vocab_size=50304)
-    model = GPT(config)
+    model = GPT(GPTConfig(vocab_size=50304))
+    BASE_DIR = Path(__file__).resolve().parent
+    checkpoint_path = BASE_DIR / "checkpoints" / "gpt2.pt"
+    checkpoint = torch.load(checkpoint_path, map_location=device)
+    # Will remove it after next training run.
+    checkpoint = {
+        key.removeprefix("module."): value for key, value in checkpoint.items()
+    }
+    model.load_state_dict(checkpoint)
     model.to(device)
 
     for i in range(len(prompts)):
+        t0 = time.time()
         generate(model, prompts[i], device, max_length=50, num_return_sequences=1)
+        t1 = time.time()
+        dt = t1 - t0
+        dt_ms = dt * 1000
+        print(f"Time: {dt_ms}")
         print("\n")
 
 
 prompts = [
     "On a cold winter morning, a young man walked into an abandoned railway station and noticed something strange about the clock.",
-    "The Solar System consists of eight planets orbiting the Sun. The four inner planets are Mercury, Venus, Earth, and Mars,",
-    "Machine learning is a branch of artificial intelligence that enables computers to learn patterns from data rather than relying entirely on explicitly programmed rules.",
-    "don't think we should go there,\" Sarah whispered. \"Something about this place doesn't feel right.",
 ]
 generateSequences(prompts)
 
-# TODO: load checkpoints and get meaningful completions, (Whatever meaning it has learnt, lol)
-# TODO: load test & benchmark inference - find bottlenecks
+# baseline: tokens: 50 time: 7s (avg)
+# TODO: reduce the time for the baseline inference
