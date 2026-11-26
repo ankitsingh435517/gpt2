@@ -4,9 +4,12 @@ from torch.nn import functional as F
 from model import GPT, GPTConfig
 from pathlib import Path
 import time
+
+# TODO: remove profiling after optimization
 from torch.profiler import profile, ProfilerActivity, record_function
 
 enc = tiktoken.get_encoding("gpt2")
+
 
 @torch.no_grad()
 def generate(
@@ -76,9 +79,6 @@ def generateSequences(prompts):
 
 
 prompts = [
-    "On a cold winter morning, a young man walked into an abandoned railway station and noticed something strange about the clock.",
+    "On a cold winter morning, a young man walked into an abandoned railway station and noticed something strange about the clock."
 ]
 generateSequences(prompts)
-
-# baseline: tokens: 50 time: 7s (avg)
-# TODO: reduce the time for the baseline inference
