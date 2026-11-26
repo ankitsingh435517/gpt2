@@ -228,3 +228,6 @@ edu_fineweb10B
 # weights
 *.pt
 /checkpoints
+
+# debug traces
+/traces
